@@ -1,0 +1,21 @@
+# Microsoft Azure / Front Door
+# Default SNI / Host: edge.microsoft.com
+# Description: Microsoft Azure Front Door and Edge CDN PoP addresses.
+
+13.107.246.40
+13.107.246.45
+13.107.213.40
+13.107.226.40
+204.79.197.200
+204.79.197.219
+20.150.83.1
+20.189.173.1
+40.126.32.1
+40.90.136.1
+52.178.17.1
+13.77.161.1
+51.144.164.1
+52.169.18.1
+2620:1ec:4::10
+2620:1ec:c::10
+2620:1ec:21::10

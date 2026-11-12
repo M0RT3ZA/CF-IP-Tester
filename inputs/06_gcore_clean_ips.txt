@@ -1,0 +1,14 @@
+# Gcore CDN
+# Default SNI / Host: gcore.com
+# Description: Gcore edge nodes with extensive Middle-East, European, and Asian routing reach.
+
+92.223.65.1
+92.223.80.1
+92.38.130.1
+92.38.160.1
+185.193.140.1
+185.193.142.1
+146.185.201.1
+195.181.160.1
+195.181.170.1
+5.188.118.1
