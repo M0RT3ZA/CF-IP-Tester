@@ -2,7 +2,8 @@
 [CmdletBinding()]
 param (
     [Parameter(Position = 0)]
-    [string]$Choice = ""
+    [string]$Choice = "",
+    [switch]$ElevatedRetry
 )
 
 Set-StrictMode -Version Latest
@@ -10,6 +11,33 @@ $ErrorActionPreference = "Stop"
 
 # Set working directory to script directory
 Set-Location -LiteralPath $PSScriptRoot
+
+# Setup and builds write to the project directory. Ask for elevation only if
+# the current user cannot create a file there, and never retry indefinitely.
+$probe = Join-Path $PSScriptRoot ('.write-test-' + [guid]::NewGuid().ToString('N'))
+try {
+    $stream = [System.IO.File]::Open($probe, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write)
+    $stream.Dispose()
+    Remove-Item -LiteralPath $probe -Force
+} catch {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    if ($ElevatedRetry -or $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        Write-Host '[ERROR] Cannot write to the project directory, even with administrator privileges. Check its permissions or move the project.' -ForegroundColor Red
+        exit 1
+    }
+    Write-Host '[INFO] The project directory is not writable. Requesting administrator permission...' -ForegroundColor Yellow
+    $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '"'
+    if ($Choice) { $arguments += ' -Choice "' + $Choice.Replace('"', '') + '"' }
+    $arguments += ' -ElevatedRetry'
+    try {
+        $process = Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -Verb RunAs -Wait -PassThru
+        exit $process.ExitCode
+    } catch {
+        Write-Host '[ERROR] Administrator permission was not granted or the launcher could not be started.' -ForegroundColor Red
+        exit 1
+    }
+}
 
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host "           CF IP Tester Launcher (PowerShell)" -ForegroundColor Cyan
@@ -93,7 +121,11 @@ if (-not $pyCmd) {
     $wingetCmd = Get-Command "winget.exe" -ErrorAction SilentlyContinue
     if ($wingetCmd) {
         Write-Host "[INFO] Installing Python 3.11 via Windows Package Manager (winget)..." -ForegroundColor Yellow
-        Start-Process "winget.exe" -ArgumentList "install --id Python.Python.3.11 --exact --scope user --silent --accept-package-agreements --accept-source-agreements" -NoNewWindow -Wait
+        try {
+            Start-Process "winget.exe" -ArgumentList "install --id Python.Python.3.11 --exact --scope user --silent --accept-package-agreements --accept-source-agreements" -NoNewWindow -Wait
+        } catch {
+            Write-Host '[WARNING] winget could not start; trying the official installer.' -ForegroundColor Yellow
+        }
     }
 
     # Re-check standard directories
@@ -114,7 +146,12 @@ if (-not $pyCmd) {
         $installerPath = Join-Path $env:TEMP "python-3.11.9-amd64.exe"
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $ProgressPreference = 'SilentlyContinue'
-        Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" -OutFile $installerPath
+        try {
+            Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" -OutFile $installerPath -UseBasicParsing
+        } catch {
+            Write-Host "[ERROR] Python download failed: $_" -ForegroundColor Red
+            exit 1
+        }
 
         if (Test-Path $installerPath) {
             Write-Host "[INFO] Running Python 3.11 installer silently..." -ForegroundColor Yellow
@@ -149,19 +186,22 @@ if (-not (Test-Path ".venv")) {
     if ($pyCmd -eq "py -3") {
         py -3 -m venv .venv
     } else {
-        Start-Process -FilePath $pyCmd -ArgumentList "-m venv .venv" -NoNewWindow -Wait
+        & $pyCmd -m venv .venv
     }
+    if ($LASTEXITCODE -ne 0) { Write-Host '[ERROR] Failed to create the virtual environment.' -ForegroundColor Red; exit 1 }
     Write-Host "[INFO] Virtual environment created successfully." -ForegroundColor Green
 }
 
 $venvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+if (-not (Test-Path -LiteralPath $venvPython)) { Write-Host '[ERROR] The .venv directory is incomplete. Repair or remove it and run the launcher again.' -ForegroundColor Red; exit 1 }
 
 # 3. Check and install dependencies
 $depCheck = Start-Process -FilePath $venvPython -ArgumentList "-c `"import PySide6, openpyxl, xlrd, xlwt`"" -NoNewWindow -Wait -PassThru -ErrorAction SilentlyContinue
 if ($depCheck.ExitCode -ne 0) {
     Write-Host "[INFO] Installing required dependencies from requirements.txt..." -ForegroundColor Yellow
     Start-Process -FilePath $venvPython -ArgumentList "-m pip install --upgrade pip" -NoNewWindow -Wait
-    Start-Process -FilePath $venvPython -ArgumentList "-m pip install -r requirements.txt" -NoNewWindow -Wait
+    $installProc = Start-Process -FilePath $venvPython -ArgumentList "-m pip install -r requirements.txt" -NoNewWindow -Wait -PassThru
+    if ($installProc.ExitCode -ne 0) { Write-Host '[ERROR] Failed to install dependencies.' -ForegroundColor Red; exit 1 }
     Write-Host "[INFO] Dependencies installed successfully.`n" -ForegroundColor Green
 }
 

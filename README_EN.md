@@ -95,8 +95,9 @@ run.bat
 ```
 Or for PowerShell users:
 ```powershell
-.\run.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run.ps1
 ```
+This bypass applies only to that PowerShell process and does not change the system policy. Directly running `.\run.ps1` may be blocked by the system policy. If the project folder is not writable, the launcher requests administrator permission.
 
 ### Linux
 Grant executable permissions and run:
